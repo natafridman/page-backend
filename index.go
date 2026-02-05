@@ -39,44 +39,43 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != "GET" {
-		json.NewEncoder(w).Encode(Response{Error: "Method not allowed"})
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(Response{Error: "Method not allowed"})
 		return
 	}
 
 	// Obtener el ID de la carpeta raíz desde variables de entorno o query params
 	rootFolderID := r.URL.Query().Get("folderId")
 	if rootFolderID == "" {
-		// Puedes configurar esto en las variables de entorno de Vercel
-		rootFolderID = getEnv("GOOGLE_DRIVE_FOLDER_ID", "")
+		rootFolderID = os.Getenv("GOOGLE_DRIVE_FOLDER_ID")
 	}
 
 	if rootFolderID == "" {
-		json.NewEncoder(w).Encode(Response{Error: "Folder ID is required"})
 		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(Response{Error: "Folder ID is required"})
 		return
 	}
 
 	// Obtener credenciales desde variable de entorno
-	credentialsJSON := getEnv("GOOGLE_CREDENTIALS_JSON", "")
+	credentialsJSON := os.Getenv("GOOGLE_CREDENTIALS_JSON")
 	if credentialsJSON == "" {
-		json.NewEncoder(w).Encode(Response{Error: "Google credentials not configured"})
 		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(Response{Error: "Google credentials not configured"})
 		return
 	}
 
 	ctx := context.Background()
 	srv, err := drive.NewService(ctx, option.WithCredentialsJSON([]byte(credentialsJSON)))
 	if err != nil {
-		json.NewEncoder(w).Encode(Response{Error: fmt.Sprintf("Unable to create Drive client: %v", err)})
 		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(Response{Error: fmt.Sprintf("Unable to create Drive client: %v", err)})
 		return
 	}
 
 	items, err := getItems(srv, rootFolderID)
 	if err != nil {
-		json.NewEncoder(w).Encode(Response{Error: err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(Response{Error: err.Error()})
 		return
 	}
 
@@ -130,7 +129,6 @@ func processItemFolder(srv *drive.Service, folderID, folderName string) (Item, e
 
 		// Si es una imagen
 		if isImage(file.MimeType) {
-			// Usar webContentLink para descarga directa o webViewLink para vista
 			imageURL := getImageURL(file.Id)
 			item.ImageURLs = append(item.ImageURLs, imageURL)
 		}
@@ -170,7 +168,6 @@ func isImage(mimeType string) bool {
 
 func getImageURL(fileID string) string {
 	// URL pública para ver/descargar la imagen
-	// Requiere que los archivos sean públicos o que uses OAuth
 	return fmt.Sprintf("https://drive.google.com/uc?export=view&id=%s", fileID)
 }
 
@@ -208,12 +205,4 @@ func parseMetadata(content string) map[string]string {
 	}
 
 	return metadata
-}
-
-func getEnv(key, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-	return value
 }
