@@ -1,0 +1,4 @@
+title: Producto Ejemplo Premium
+subtitle: Categoría Electronics
+description: Este es un producto de alta calidad con características premium. Incluye garantía extendida y soporte técnico 24/7. Ideal para usuarios profesionales que buscan lo mejor en tecnología.
+code: PROD-2024-001
