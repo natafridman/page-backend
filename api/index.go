@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 
 	"google.golang.org/api/drive/v3"
@@ -19,6 +20,7 @@ type Item struct {
 	Description string   `json:"description"`
 	Code        string   `json:"code"`
 	ImageURLs   []string `json:"imageUrls"`
+	VideoURLs   []string `json:"videoUrls"`
 }
 
 type Response struct {
@@ -109,6 +111,7 @@ func getItems(srv *drive.Service, rootFolderID string) ([]Item, error) {
 func processItemFolder(srv *drive.Service, folderID, folderName string) (Item, error) {
 	item := Item{
 		ImageURLs: []string{},
+		VideoURLs: []string{},
 	}
 
 	// Listar todos los archivos en la carpeta del item
@@ -119,11 +122,13 @@ func processItemFolder(srv *drive.Service, folderID, folderName string) (Item, e
 	}
 
 	var metadataFileID string
+	var metadataFileName string
 
 	for _, file := range fileList.Files {
-		// Si es el archivo metadata.txt
-		if file.Name == "metadata.txt" {
+		// Si es el archivo metadata.txt o metadata.docx
+		if file.Name == "metadata.txt" || file.Name == "metadata.docx" {
 			metadataFileID = file.Id
+			metadataFileName = file.Name
 			continue
 		}
 
@@ -132,11 +137,17 @@ func processItemFolder(srv *drive.Service, folderID, folderName string) (Item, e
 			imageURL := getImageURL(file.Id)
 			item.ImageURLs = append(item.ImageURLs, imageURL)
 		}
+
+		// Si es un video
+		if isVideo(file.MimeType) {
+			videoURL := getVideoURL(file.Id)
+			item.VideoURLs = append(item.VideoURLs, videoURL)
+		}
 	}
 
-	// Leer metadata.txt si existe
+	// Leer metadata.txt o metadata.docx si existe
 	if metadataFileID != "" {
-		metadata, err := readMetadata(srv, metadataFileID)
+		metadata, err := readMetadata(srv, metadataFileID, metadataFileName)
 		if err != nil {
 			return item, fmt.Errorf("error reading metadata: %v", err)
 		}
@@ -166,12 +177,37 @@ func isImage(mimeType string) bool {
 	return false
 }
 
+func isVideo(mimeType string) bool {
+	videoTypes := []string{
+		"video/mp4",
+		"video/mpeg",
+		"video/quicktime",
+		"video/x-msvideo",
+		"video/x-ms-wmv",
+		"video/webm",
+		"video/ogg",
+		"video/3gpp",
+		"video/x-flv",
+	}
+	for _, t := range videoTypes {
+		if mimeType == t {
+			return true
+		}
+	}
+	return false
+}
+
 func getImageURL(fileID string) string {
 	// URL pública para ver/descargar la imagen
 	return fmt.Sprintf("https://drive.google.com/uc?export=view&id=%s", fileID)
 }
 
-func readMetadata(srv *drive.Service, fileID string) (map[string]string, error) {
+func getVideoURL(fileID string) string {
+	// URL para reproducir video desde Google Drive
+	return fmt.Sprintf("https://drive.google.com/file/d/%s/preview", fileID)
+}
+
+func readMetadata(srv *drive.Service, fileID, fileName string) (map[string]string, error) {
 	resp, err := srv.Files.Get(fileID).Download()
 	if err != nil {
 		return nil, err
@@ -183,7 +219,30 @@ func readMetadata(srv *drive.Service, fileID string) (map[string]string, error) 
 		return nil, err
 	}
 
-	return parseMetadata(string(body)), nil
+	var content string
+	
+	// Si es un archivo .docx, usar pandoc para extraer el texto
+	if strings.HasSuffix(strings.ToLower(fileName), ".docx") {
+		// Guardar temporalmente el archivo
+		tmpFile := fmt.Sprintf("/tmp/metadata_%s.docx", fileID)
+		if err := os.WriteFile(tmpFile, body, 0644); err != nil {
+			return nil, fmt.Errorf("error writing temp file: %v", err)
+		}
+		defer os.Remove(tmpFile)
+
+		// Usar pandoc para extraer texto
+		cmd := exec.Command("pandoc", tmpFile, "-t", "plain")
+		output, err := cmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("error running pandoc: %v", err)
+		}
+		content = string(output)
+	} else {
+		// Es un archivo .txt
+		content = string(body)
+	}
+
+	return parseMetadata(content), nil
 }
 
 func parseMetadata(content string) map[string]string {
